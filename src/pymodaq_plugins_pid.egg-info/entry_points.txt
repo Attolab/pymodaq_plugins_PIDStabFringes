@@ -1,0 +1,5 @@
+[pymodaq.pid_models]
+pid = pymodaq_plugins_pid
+
+[pymodaq.plugins]
+pid = pymodaq_plugins_pid

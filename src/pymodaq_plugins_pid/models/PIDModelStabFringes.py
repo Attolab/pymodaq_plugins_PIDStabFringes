@@ -13,13 +13,13 @@ class PIDModelStabFringes(PIDModelGeneric):
     konstants = dict(kp=10, ki=0.000, kd=0.1000)
 
     setpoint_ini = [0]
-    setpoints_names = ['Xaxis']
+    setpoints_names = ['Phase']
 
-    actuators_name = ["Move"]
-    detectors_name = ['Det']
+    actuators_name = ["Move 00"]
+    detectors_name = ['Det 00']
 
     Nsetpoints = 1
-    # params = [{'title': 'Threshold', 'name': 'threshold', 'type': 'float', 'value': 10.}]
+    # params = [{'title': 'Test', 'name': 'test', 'type': 'bool_push', 'value': False}]
 
     def __init__(self, pid_controller):
         super().__init__(pid_controller)

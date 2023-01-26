@@ -50,18 +50,16 @@ class PIDModelStabFringes(PIDModelGeneric):
         float: the phase retrieved (in degrees)
 
         """
-
-        if len(measurements['Det']['data1D']) > 1:
-            key = list(measurements['Det']['data1D'].keys())[0]
+        if len(measurements[self.detectors_name[0]]['data1D']) > 1:
+            key = list(measurements[self.detectors_name[0]]['data1D'].keys())[0]
             # print(key)
-            sm =  measurements['Det']['data1D'][key]['data']
+            sm =  measurements[self.detectors_name[0]]['data1D'][key]['data']
         else:
             # print('No ROI defined, we will sum vertically.')
-            key = list(measurements['Det']['data2D'].keys())[0]  # so it can also be used from another plugin having another key
+            key = list(measurements[self.detectors_name[0]]['data2D'].keys())[0]  # so it can also be used from another plugin having another key
             # print(key)
-            image = measurements['Det']['data2D'][key]['data']
+            image = measurements[self.detectors_name[0]]['data2D'][key]['data']
             sm = np.sum(image, axis=0)
-
         sm = sm - np.mean(sm)
         sm = sm / np.max(np.abs(sm))
 

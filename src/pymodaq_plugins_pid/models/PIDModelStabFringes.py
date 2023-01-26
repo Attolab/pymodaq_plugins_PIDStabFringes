@@ -8,9 +8,9 @@ class PIDModelStabFringes(PIDModelGeneric):
     PID model to stabilise a fringe pattern.
     '''
 
-    limits = dict(max=dict(state=True, value=10),
-                  min=dict(state=True, value=-10),)
-    konstants = dict(kp=10, ki=0.000, kd=0.1000)
+    limits = dict(max=dict(state=True, value=180),
+                  min=dict(state=True, value=-180),)
+    konstants = dict(kp=1.0, ki=0.000, kd=0.0000)
 
     setpoint_ini = [0]
     setpoints_names = ['Phase']
@@ -19,10 +19,11 @@ class PIDModelStabFringes(PIDModelGeneric):
     detectors_name = ['Det 00']
 
     Nsetpoints = 1
-    # params = [{'title': 'Test', 'name': 'test', 'type': 'bool_push', 'value': False}]
+    params = [{'title': 'Wavelength (nm)', 'name': 'wavelength', 'type': 'float', 'value': 800}]
 
     def __init__(self, pid_controller):
         super().__init__(pid_controller)
+        self.wavelength = self.params[0]['value']
 
     def update_settings(self, param):
         """
@@ -31,7 +32,10 @@ class PIDModelStabFringes(PIDModelGeneric):
         ----------
         param: (Parameter) instance of Parameter object
         """
-        if param.name() == '':
+        if param.name() == 'wavelength':
+            self.wavelength = param.value()
+            print(self.wavelength)
+        else:
             pass
 
     def ini_model(self):
@@ -82,9 +86,10 @@ class PIDModelStabFringes(PIDModelGeneric):
     # def sinus(self, x, frq, phi): #servait au fit
     #     return(np.sin(frq*x+phi))
 
-    def convert_output(self, outputs, dt, stab=True):       #Je ne sais pas si je suis censé lui donner quelque chose à faire...
+    def convert_output(self, outputs, dt, stab=True):
         """
-        Convert the output of the PID in units to be fed into the actuator
+        Convert the calculated phase adjustment into a displacement (in µm).
+
         Parameters
         ----------
         output: (float) output value from the PID from which the model extract a value of the same units as the actuator
@@ -96,8 +101,10 @@ class PIDModelStabFringes(PIDModelGeneric):
         """
         # print('output converted')
         # print(outputs)
-        self.curr_output = outputs
-        return OutputToActuator(mode='rel', values=outputs)
+        # print(self.wavelength)
+        self.curr_output = outputs /360 * self.wavelength * 1e-9 /2 / 1e-6      #Phase in degree, displacement in µm, wavelength in nm. 
+        # print(self.curr_output)
+        return OutputToActuator(mode='rel', values=self.curr_output)
 
 
 if __name__ == '__main__':

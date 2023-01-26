@@ -19,11 +19,15 @@ class PIDModelStabFringes(PIDModelGeneric):
     detectors_name = ['Det 00']
 
     Nsetpoints = 1
-    params = [{'title': 'Wavelength (nm)', 'name': 'wavelength', 'type': 'float', 'value': 800}]
+    params = [{'title': 'Wavelength (nm)', 'name': 'wavelength', 'type': 'float', 'value': 800},
+    {'title': 'Actuator units (m)', 'name': 'unit', 'type': 'float', 'value': 1e-6},
+    {'title': 'Show converted', 'name': 'show_converted', 'type': 'bool', 'value': False}]
 
     def __init__(self, pid_controller):
         super().__init__(pid_controller)
         self.wavelength = self.params[0]['value']
+        self.unit = self.params[1]['value']
+        # self.show = self.params[2]['value']
 
     def update_settings(self, param):
         """
@@ -35,6 +39,12 @@ class PIDModelStabFringes(PIDModelGeneric):
         if param.name() == 'wavelength':
             self.wavelength = param.value()
             print(self.wavelength)
+        elif param.name() == 'unit':
+            self.unit = param.value()
+            print(self.unit)
+        # elif param.name() == 'show_converted':
+        #     self.show = param.value()
+        #     print(self.unit)
         else:
             pass
 
@@ -102,7 +112,8 @@ class PIDModelStabFringes(PIDModelGeneric):
         # print('output converted')
         # print(outputs)
         # print(self.wavelength)
-        self.curr_output = outputs /360 * self.wavelength * 1e-9 /2 / 1e-6      #Phase in degree, displacement in µm, wavelength in nm. 
+        self.curr_output = np.array(outputs) /360 * self.wavelength * 1e-9 /2 / self.unit   #Phase in degree, displacement in µm, wavelength in nm. 
+        
         # print(self.curr_output)
         return OutputToActuator(mode='rel', values=self.curr_output)
 

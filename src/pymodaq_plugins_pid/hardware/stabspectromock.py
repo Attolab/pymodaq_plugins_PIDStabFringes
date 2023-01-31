@@ -73,7 +73,7 @@ class StabSpectroController:
         # p2 = self.gaussian(self.taxis, self.omega, self.tau, dt=deltaT+self.offsett)
         # # print('b2')
         # pulses = p1 + p2
-        pulses = self.gaussian(self.taxis, self.omega, self.tau, dt=0) + self.gaussian(self.taxis, self.omega, self.tau, dt=deltaT+self.offsett)
+        pulses = self.gaussian(self.taxis, self.omega, self.tau, dt=0) + self.gaussian(self.taxis, self.omega, self.tau, dt=deltaT+self.offsett) + self.noise*(np.random.rand(self.Nt)-0.5)
         if 0:
             # print('c')
             self.data_mock = np.abs(pulses)**2

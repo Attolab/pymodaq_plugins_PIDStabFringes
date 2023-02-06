@@ -29,7 +29,7 @@ class DAQ_1DViewer_StabSpectro(DAQ_Viewer_base):
         {'title': 'Noise level:', 'name': 'noise', 'type': 'float', 'value': 0.5, 'default': 0.5, 'min': 0},
         {'title': 'Drift speed:', 'name': 'drft_spd', 'type': 'float', 'value': 0.0, 'default': 0.1, 'min': 0},
         {'title': 'Drift alea:', 'name': 'drft_alea', 'type': 'float', 'value': 0.0, 'default': 0.5, 'min': 0},
-        {'title': 'Tau:', 'name': 'tau', 'type': 'float', 'value': 25},
+        {'title': 'Tau:', 'name': 'tau', 'type': 'float', 'value': 5, 'default': 3},
         {'title': 'Drift', 'name': 'drift', 'type': 'bool', 'value': False}
     ]
 

@@ -2,6 +2,7 @@ from pymodaq.pid.utils import PIDModelGeneric, OutputToActuator, InputFromDetect
 from scipy.ndimage import center_of_mass
 from scipy.optimize import curve_fit
 import numpy as np
+from scipy.signal import argrelextrema
 
 class PIDModelStabFringes(PIDModelGeneric):
     '''
@@ -68,11 +69,13 @@ class PIDModelStabFringes(PIDModelGeneric):
         sm =  measurements[self.detectors_name[0]]['data1D'][key]['data']
 
         tf = np.abs(np.fft.rfft(sm))
-        N = len(tf)
-        dtf = np.gradient(tf)
-        sgn = [np.sign(dtf[i]*dtf[i+1]*np.abs(tf)[i] for i in range(N))]
-
-        return InputFromDetector([np.argmin(sgn)])
+        arg = 0
+        x_maxs = argrelextrema(tf, np.greater)[0]
+        if len(x_maxs) > 0:
+            x_max = np.argmin(-tf[x_max])
+            if tf[x_max] > tf[0]*0.1:
+                arg = x_max
+        return InputFromDetector([arg])
 
 
     def convert_output(self, outputs, dt, stab=True):
@@ -90,9 +93,10 @@ class PIDModelStabFringes(PIDModelGeneric):
         """
         # print('output converted')
         # print(outputs)
-        # print(self.wavelength)
-        self.curr_output = np.array(outputs) /360 * self.wavelength * 1e-9 /2 / self.unit   #Phase in degree, displacement in µm, wavelength in nm. 
-        
+        # if outputs[0] != None:
+            # self.curr_output = np.array(outputs) /360 * self.wavelength * 1e-9 /2 / self.unit   #Phase in degree, displacement in µm, wavelength in nm. 
+        # else:
+        self.curr_output = outputs
         # print(self.curr_output)
         return OutputToActuator(mode='rel', values=self.curr_output)
 

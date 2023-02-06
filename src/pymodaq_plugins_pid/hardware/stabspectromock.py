@@ -14,7 +14,7 @@ class StabSpectroController:
     drift = False
     wl = 8e-7
     omega = 3e8 / wl * (2*np.pi)
-    tau = 25e-15
+    tau = 25
 
     def __init__(self, positions=None, noise=0.1, drft_spd = 0, drft_alea = 0):
         super().__init__()
@@ -26,7 +26,7 @@ class StabSpectroController:
             self.current_positions = positions
 
         global deltaT
-        deltaT = 0
+        deltaT = 1e-12
 
 
         self.noise = noise
@@ -78,7 +78,8 @@ class StabSpectroController:
             # print('c')
             self.data_mock = np.abs(pulses)**2
         else:
-            self.data_mock = np.abs(np.fft.fftshift(np.fft.fft(pulses)))**2
+            # self.data_mock = np.abs(np.fft.fftshift(np.fft.fft(pulses)))**2
+            self.data_mock = np.abs(np.fft.rfft(np.abs(np.fft.fftshift(np.fft.fft(pulses)))**2))
         # print('d')
         return self.data_mock
 

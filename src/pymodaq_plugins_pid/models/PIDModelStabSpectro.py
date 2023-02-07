@@ -68,11 +68,13 @@ class PIDModelStabFringes(PIDModelGeneric):
         key = list(measurements[self.detectors_name[0]]['data1D'].keys())[0]
         sm =  measurements[self.detectors_name[0]]['data1D'][key]['data']
 
-        tf = np.abs(np.fft.rfft(sm))
+        # tf = np.abs(np.fft.rfft(sm))
+        tf = sm
         arg = 0
         x_maxs = argrelextrema(tf, np.greater)[0]
         if len(x_maxs) > 0:
-            x_max = np.argmin(-tf[x_max])
+            x_max = x_maxs[np.argmin(-tf[x_maxs])]
+            # print(x_maxs)
             if tf[x_max] > tf[0]*0.1:
                 arg = x_max
         return InputFromDetector([arg])
@@ -96,6 +98,7 @@ class PIDModelStabFringes(PIDModelGeneric):
         # if outputs[0] != None:
             # self.curr_output = np.array(outputs) /360 * self.wavelength * 1e-9 /2 / self.unit   #Phase in degree, displacement in µm, wavelength in nm. 
         # else:
+        # print('h')
         self.curr_output = outputs
         # print(self.curr_output)
         return OutputToActuator(mode='rel', values=self.curr_output)

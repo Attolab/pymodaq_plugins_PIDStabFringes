@@ -10,11 +10,11 @@ class StabSpectroController:
 
     axis = ['Xaxis']
     Nactuators = 1
-    Nt = 256
+    Nt = 2048
     drift = False
     wl = 8e-7
     omega = 3e8 / wl * (2*np.pi)
-    tau = 25
+    tau = 5
 
     def __init__(self, positions=None, noise=0.1, drft_spd = 0, drft_alea = 0):
         super().__init__()
@@ -26,7 +26,7 @@ class StabSpectroController:
             self.current_positions = positions
 
         global deltaT
-        deltaT = 1e-12
+        deltaT = 10e-15
 
 
         self.noise = noise
@@ -48,7 +48,7 @@ class StabSpectroController:
         self.current_positions[axis] += position
         global deltaT
         deltaT += position * 1e-7 / 3e8
-        print(deltaT)
+        # print(deltaT)
 
     def get_xaxis(self):
         return(np.fft.rfftfreq(self.Nt, self.taxis[1]-self.taxis[0]))

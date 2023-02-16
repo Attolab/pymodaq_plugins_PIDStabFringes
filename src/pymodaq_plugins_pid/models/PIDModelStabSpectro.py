@@ -21,8 +21,7 @@ class PIDModelStabFringes(PIDModelGeneric):
 
     Nsetpoints = 1
     params = [{'title': 'Wavelength (nm)', 'name': 'wavelength', 'type': 'float', 'value': 800},
-    {'title': 'Actuator units (m)', 'name': 'unit', 'type': 'float', 'value': 1e-6},
-    {'title': 'Show converted', 'name': 'show_converted', 'type': 'bool', 'value': False}]
+    {'title': 'Actuator units (m)', 'name': 'unit', 'type': 'float', 'value': 1e-6}]
 
     def __init__(self, pid_controller):
         super().__init__(pid_controller)

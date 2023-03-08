@@ -28,6 +28,7 @@ class PIDModelStabFringes(PIDModelGeneric):
         super().__init__(pid_controller)
         self.wavelength = self.params[0]['value']
         self.unit = self.params[1]['value']
+        self.phase_vector = None
         # self.show = self.params[2]['value']
 
     def update_settings(self, param):
@@ -79,7 +80,11 @@ class PIDModelStabFringes(PIDModelGeneric):
         sm = sm / np.max(np.abs(sm))
 
         tf = np.fft.rfft(np.fft.fftshift(sm))
-        phi = np.angle(tf[np.argmin(-np.abs(tf))])
+        with open('tf.npy', 'wb') as f:
+            np.save(f, tf)
+        # phi = np.angle(tf[np.argmin(-np.abs(tf))])
+        phi = np.unwrap(np.angle(tf))[np.argmin(-np.abs(tf))]
+        # phi = np.angle(np.exp(1j*phi))
 
         # self.curr_input = phi     #Je ne sais pas à quoi ça sert de l'avoir en self.
 

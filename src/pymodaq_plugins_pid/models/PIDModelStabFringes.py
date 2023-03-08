@@ -28,7 +28,7 @@ class PIDModelStabFringes(PIDModelGeneric):
         super().__init__(pid_controller)
         self.wavelength = self.params[0]['value']
         self.unit = self.params[1]['value']
-        self.phase_vector = None
+        self.phase_vector = deque(maxlen=1000)
         # self.show = self.params[2]['value']
 
     def update_settings(self, param):
@@ -82,25 +82,13 @@ class PIDModelStabFringes(PIDModelGeneric):
         tf = np.fft.rfft(np.fft.fftshift(sm))
         with open('tf.npy', 'wb') as f:
             np.save(f, tf)
-        # phi = np.angle(tf[np.argmin(-np.abs(tf))])
-        phi = np.unwrap(np.angle(tf))[np.argmin(-np.abs(tf))]
-        # phi = np.angle(np.exp(1j*phi))
+        self.phase_vector.append(np.angle(tf[np.argmin(-np.abs(tf))]))
 
-        # self.curr_input = phi     #Je ne sais pas à quoi ça sert de l'avoir en self.
-
-        # xi = np.arange(len(sm))   #Tentative de fit, mais en fait c'est pas nécessaire.
-        # Nx = len(xi)
-        # kx = np.fft.rfftfreq(Nx)
-        # fr = kx[np.argmin(-np.abs(tf))]
-        # [frq, phi], _ = curve_fit(self.sinus, xi, sm, p0=[fr, 0], bounds=([fr*0.9, -np.pi], [fr*1.1, np.pi]), max_nfev=10000)
-
+        phi = np.unwrap(self.phase_vector)[-1]
         phi *= 180 / np.pi
         # print('input conversion done')
         # print("Fit : ", fr, phi)
         return InputFromDetector([phi])
-
-    # def sinus(self, x, frq, phi): #servait au fit
-    #     return(np.sin(frq*x+phi))
 
     def convert_output(self, outputs, dt, stab=True):
         """

@@ -2,6 +2,7 @@ from pymodaq.pid.utils import PIDModelGeneric, OutputToActuator, InputFromDetect
 from scipy.ndimage import center_of_mass
 from scipy.optimize import curve_fit
 import numpy as np
+from collections import deque
 
 class PIDModelStabFringes(PIDModelGeneric):
     '''

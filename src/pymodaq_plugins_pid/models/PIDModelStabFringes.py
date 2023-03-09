@@ -28,7 +28,7 @@ class PIDModelStabFringes(PIDModelGeneric):
         super().__init__(pid_controller)
         self.wavelength = self.params[0]['value']
         self.unit = self.params[1]['value']
-        self.phase_vector = deque(maxlen=1000)
+        self.phase_vector = deque(maxlen=100)
         # self.show = self.params[2]['value']
 
     def update_settings(self, param):
@@ -82,13 +82,17 @@ class PIDModelStabFringes(PIDModelGeneric):
         tf = np.fft.rfft(np.fft.fftshift(sm))
         with open('tf.npy', 'wb') as f:
             np.save(f, tf)
-        self.phase_vector.append(np.angle(tf[np.argmin(-np.abs(tf))]))
 
-        phi = np.unwrap(self.phase_vector)[-1]
-        phi *= 180 / np.pi
+        # self.phase_vector.append(np.angle(tf[np.argmin(-np.abs(tf))]))
+        phiwrapped = np.angle(tf[np.argmin(-np.abs(tf))])
+
+        phi = np.unwrap(np.concatenate((self.phase_vector, [phiwrapped])))[-1]
+        # print(phi)
+        self.phase_vector.append(phi)
+
         # print('input conversion done')
         # print("Fit : ", fr, phi)
-        return InputFromDetector([phi])
+        return InputFromDetector([phi*180 / np.pi])
 
     def convert_output(self, outputs, dt, stab=True):
         """
@@ -106,7 +110,10 @@ class PIDModelStabFringes(PIDModelGeneric):
         # print('output converted')
         # print(outputs)
         # print(self.wavelength)
-        self.curr_output = np.array(outputs) /360 * self.wavelength * 1e-9 /2 / self.unit   #Phase in degree, displacement in µm, wavelength in nm. 
+        if None in outputs:
+            self.curr_output = np.zeros(np.shape(outputs))
+        else:
+            self.curr_output = np.array(outputs) /360 * self.wavelength * 1e-9 /2 / self.unit   #Phase in degree, displacement in µm, wavelength in nm. 
         
         # print(self.curr_output)
         return OutputToActuator(mode='rel', values=self.curr_output)

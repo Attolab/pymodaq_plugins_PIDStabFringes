@@ -32,10 +32,18 @@ class DAQ_Move_StabFringes(DAQ_Move_base):
                 'limits': ['Master', 'Slave']},
             {'title': 'Axis:', 'name': 'axis', 'type': 'list', 'limits': stage_names},
 
-        ]}] + comon_parameters
+        ]},
+        {'title':'Saved Positions', 'name': 'savedPositions', 'type':'group', 'children': [
+            {'title': 'Saved Positions', 'name': 'positionsList', 'type':'list', 'limits':[0.0]}, 
+            {'title': 'Save Current', 'name': 'saveCurrPos', 'type':'bool_push', 'value':False}, 
+            {'title': 'Reset', 'name': 'resetSavedPos', 'type':'bool_push', 'value':False}, 
+        ]
+        }] + comon_parameters
 
     def __init__(self, parent=None, params_state=None):
         super().__init__(parent, params_state)
+        self.defaultLims = [float(i) for i in self.settings.child('savedPositions', 'positionsList').opts['limits']]
+        self.settings.child('savedPositions', 'positionsList').setLimits(self.defaultLims)
 
 
     def check_position(self):
@@ -64,15 +72,32 @@ class DAQ_Move_StabFringes(DAQ_Move_base):
         """
         pass
 
+    # def commit_settings(self, param):
+    #     """
+    #         | Activate any parameter changes on the PI_GCS2 hardware.
+    #         |
+    #         | Called after a param_tree_changed signal from DAQ_Move_main.
+
+    #     """
+
+    #     pass
+
     def commit_settings(self, param):
         """
-            | Activate any parameter changes on the PI_GCS2 hardware.
-            |
-            | Called after a param_tree_changed signal from DAQ_Move_main.
-
+        Get a parameter instance whose value has been modified by a user on the UI
+        Parameters
+        ----------
+        param: (Parameter) instance of Parameter object
         """
+        if param.name() == 'positionsList':
+            self.move_Abs(param.value())
+        if param.name() == 'saveCurrPos':
+            print(self.settings.child('savedPositions', 'positionsList').opts['limits'])
+            self.settings.child('savedPositions', 'positionsList').setLims(self.settings.child('savedPositions', 'positionsList').opts['limits'] + [self.current_position])
+        if param.name() == 'resetSavedPos':
+            self.settings.child('savedPositions', 'positionsList').setLimits(self.defaultLims)
+            print(self.settings.child('savedPositions', 'positionsList').opts['limits'])
 
-        pass
 
     def ini_stage(self, controller=None):
         """

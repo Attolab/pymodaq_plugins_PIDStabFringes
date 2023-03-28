@@ -6,6 +6,7 @@ import scipy.signal.windows as windows
 import scipy.fft as fft
 from collections import deque
 from datetime import datetime
+import os, time
 
 from pyqtgraph.Qt import QtCore
 import pyqtgraph as pg
@@ -19,6 +20,8 @@ from pymodaq.daq_utils.plotting.viewer2D.viewer_2D_main import Viewer2D
 from pymodaq.daq_utils.daq_utils import Axis, set_logger, get_module_name, DataFromPlugins
 from pymodaq.daq_utils.math_utils import ft, ift
 from pymodaq.daq_utils.h5modules import H5Saver
+
+from pymodaq.daq_scan import DAQ_Scan
 
 logger = set_logger(get_module_name(__file__))
 
@@ -38,7 +41,6 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
     params = [
         {'title': 'Wavelength (nm)', 'name': 'wavelength', 'type': 'float', 'value': 800},
         {'title': 'Actuator unit (m)', 'name': 'unit', 'type': 'float', 'value': 1e-6},
-        {'title': 'RMS', 'name': 'RMS', 'type': 'float', 'value': 0.0, 'readonly': True},
         {'title': 'Units', 'name': 'unitsGroup', 'type': 'group', 'expanded': True, 'visible': True,
          'children': [
              {'title': 'Convert to femto', 'name': 'convertFemto', 'type': 'bool', 'value': True},
@@ -79,7 +81,12 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
 
         self.wavelength = self.settings.child('wavelength').value()
         self.recording = False
+        self.h5saver = H5Saver()
+        self.phase_arrays = None
+        self.data_channels_initialized = False
+        self.setupUI()
 
+    def setupUI(self):
         self.dock_camera = Dock("Camera data")
         widget_camera = QtWidgets.QWidget()
         logger.info('Init Widget: Dock Camera')
@@ -120,8 +127,12 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
         self.pid_controller.dock_area.addDock(self.dock_phase, 'bottom', self.dock_tf)
         self.phase_viewer.show_data([np.random.normal(size=100)])
 
-    def updateGUI(self, param):
-        self.viewer_calib.show_data(param)
+        # add unit
+        self.pid_controller.toolbar_layout.itemAt(8).widget().setText(
+            'Current Value (fs): ' if self.settings.child('unitsGroup', 'convertFemto').value() else 'Current Value (deg): ')
+        self.pid_controller.toolbar_layout.itemAt(7).widget().setText(
+            'Target Value (fs): ' if self.settings.child('unitsGroup',
+                                                          'convertFemto').value() else 'Target Value (deg): ')
 
     def update_settings(self, param):
         """
@@ -157,35 +168,92 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
             self.offset = self.phi
             print('The offset phase is now: ', self.offset)
         if param.name() == 'record':
-            self.init_saver()
+            if (self.h5saver.h5_file_name is None) | (self.h5saver.h5_file_name == ''):
+                if self.init_saver():   # File was initialized correctly
+                    self.start_saver()
+            else:
+                self.start_saver()
         if param.name() == 'recordStop':
             self.close_saver()
 
+        if param.name() == 'convertFemto':
+            self.pid_controller.toolbar_layout.itemAt(8).widget().setText(
+                'Current Value (fs): ' if param.value() else 'Current Value (deg): ')
+            self.pid_controller.toolbar_layout.itemAt(7).widget().setText(
+                'Target Value (fs): ' if param.value() else 'Target Value (deg): ')
+            self.pid_controller.input_viewer.update_labels(
+                'Input (fs)' if param.value() else 'Input (deg)')
+
     def init_saver(self):
-        self.timearray = np.zeros((self.settings.child('statsGroup', 'N_record').value(), 3))
-        self.delayarray = np.zeros(self.settings.child('statsGroup', 'N_record').value())
-        self.Nrecorded = 0
+           # First time we click on the button
+            _, _, dataset_path = self.h5saver.update_file_paths()
+            self.h5saver.settings.child('base_name').setValue(os.path.split(dataset_path)[0])
+            try:
+                self.h5saver.init_file(custom_naming=True)
+            except AttributeError:
+                logger.error('User didn\'t select a file')
+
+            if not self.h5saver.h5_file_name == '':     # User selected a file
+                # Scan
+                self.h5saver.add_scan_group(title='PID Log')
+                self.current_scan_path = self.h5saver.settings.child('current_scan_path').value()
+                # Detector
+                self.h5saver.add_det_group(
+                    where=self.h5saver.current_scan_group,
+                    title='Phase')
+                phase_group = self.h5saver.current_group
+                # Data
+                self.h5saver.add_data_group(
+                    where=phase_group,
+                    group_data_type='data0D',
+                    title='Phase'
+                )
+                phase_data_group = self.h5saver.current_group
+
+                # Phase
+                self.h5saver.add_CH_group(
+                    where=phase_data_group,
+                    title='Phase'
+                )
+                # Time
+                self.h5saver.add_CH_group(
+                    where=phase_data_group,
+                    title='Time'
+                )
+                return True
+            else:   # User didn't select a file
+                # self.h5saver.h5_file_name = None
+                return False
+
+    def start_saver(self):
         self.recording = True
-        self.h5_saver = H5Saver()
-        time_init = datetime.now()
-        self.h5_saver.init_file(custom_naming=False,
-                                addhoc_file_path='C:/Users/mguer/Matthieu/recording_{0.year}{0.month}{0.day}_{0.hour}h{0.minute}.h5'.format(
-                                    time_init))
-
-        self.h5_saver.add_data_group('/', title='Time', group_data_type='data1D')
-        self.h5_timegroup = self.h5_saver.current_group
-        self.h5_saver.add_data_group('/', title='Delay', group_data_type='data1D')
-        self.h5_delaygroup = self.h5_saver.current_group
-
         self.settings.child('statsGroup', 'record').setOpts(visible=False)
         self.settings.child('statsGroup', 'recordStop').setOpts(visible=True)
-        print('saver_inited')
+
+        # self.timearray = np.zeros((self.settings.child('statsGroup', 'N_record').value(), 3))
+        # self.delayarray = np.zeros(self.settings.child('statsGroup', 'N_record').value())
+        # self.Nrecorded = 0
+        # self.recording = True
+        # self.h5saver = H5Saver()
+        # time_init = datetime.now()
+        # self.h5saver.init_file(custom_naming=False,
+        #                         addhoc_file_path='C:/Users/mguer/Matthieu/recording_{0.year}{0.month}{0.day}_{0.hour}h{0.minute}.h5'.format(
+        #                             time_init))
+        #
+        # self.h5saver.add_data_group('/', title='Time', group_data_type='data1D')
+        # self.h5_timegroup = self.h5saver.current_group
+        # self.h5saver.add_data_group('/', title='Delay', group_data_type='data1D')
+        # self.h5_delaygroup = self.h5saver.current_group
+        #
+        self.settings.child('statsGroup', 'record').setOpts(visible=False)
+        self.settings.child('statsGroup', 'recordStop').setOpts(visible=True)
+        # print('saver_inited')
 
     def close_saver(self):
         self.recording = False
         self.settings.child('statsGroup', 'record').setOpts(visible=True)
         self.settings.child('statsGroup', 'recordStop').setOpts(visible=False)
-        self.h5_saver.close()
+        # self.h5saver.close()
 
     def ini_model(self):
         super().ini_model()
@@ -204,30 +272,32 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
         -------
         tuple: the coordinate of the center of the beam
         """
-
         key = list(measurements[self.detectors_name[0]]['data2D'].keys())[
             0]  # so it can also be used from another plugin having another key
         image = np.array(measurements[self.detectors_name[0]]['data2D'][key]['data'])
 
+
         # self.img1b.setImage(self.roi.getArrayRegion(image, self.img1a), levels=(0, image.max()))
         roi = self.camera_viewer.ROIselect.getArrayRegion(image,
                                                           self.camera_viewer.view.data_displayer.get_image('red'))
-        self.fringes = np.mean(roi, axis=0)
-        self.fringes -= np.mean(self.fringes)
+
+        self.fringes = np.nanmean(roi, axis=0)
+        first_nonzero = (self.fringes!=0).argmax()
+        last_nonzero = len(self.fringes) - np.flip(self.fringes != 0).argmax()
+        self.fringes = self.fringes[first_nonzero:last_nonzero]
+        self.fringes -= np.nanmean(self.fringes)
 
         tf = np.fft.rfft(np.fft.fftshift(self.fringes))
-
         # S = ft(self.fringes)
 
-        # x_min = int(self.lr.getRegion()[0])
+        x_min = int(self.lr.getRegion()[0])
         x_max = int(self.lr.getRegion()[1])
         # phase_roi = np.unwrap(np.angle(S[x_min:x_max]))
 
-        phiwrapped = np.angle(tf)[x_max]
+        phiwrapped = np.mean(np.angle(tf)[x_min:x_max])
         phi = np.unwrap(np.concatenate((self.phase_vector, [phiwrapped])))[-1]
         self.phase_vector.append(phi)
         self.phi = phi
-
         if self.settings.child('show_plots', 'show_camera').value():
             self.camera_viewer.show_data(DataFromPlugins(data=[image]))
         if self.settings.child('show_plots', 'show_roi').value():
@@ -239,29 +309,40 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
             self.phase_viewer.show_data([[tmp[-1]]])
 
         rms = np.std(self.phase_vector)
-        self.settings.child('statsGroup', 'RMS').setValue(rms)
 
         if self.settings.child('unitsGroup', 'convertFemto').value():
-            delay = (self.phi - self.offset) * self.wavelength * 1e-9 / (2 * np.pi * 3e8) * 1e-15
+            delay = (self.phi - self.offset) * self.wavelength * 1e-9 / (2 * np.pi * 3e8) * 1e15
+            rms *= self.wavelength * 1e-9 / (2 * np.pi * 3e8) * 1e15
         else:
             delay = (self.phi - self.offset) / np.pi * 180
+            rms *= np.pi/180
+
+        self.settings.child('statsGroup', 'RMS').setValue(rms)
 
         if self.recording:
-            print('trying to save')
-            if self.Nrecorded < self.settings.child('statsGroup', 'N_record').value():
-                print('writing in array')
-                current_time = datetime.now().time()
-                self.timearray[self.Nrecorded, 0] = current_time.hour
-                self.timearray[self.Nrecorded, 1] = current_time.minute
-                self.timearray[self.Nrecorded, 2] = current_time.second
-                self.delayarray[self.Nrecorded] = delay
-                self.Nrecorded += 1
-            # if self.Nrecorded == self.settings.child('statsGroup', 'N_record'):
+            if self.phase_arrays is None:
+                self.phase_arrays = self.h5saver.add_data(
+                    channel_group=self.h5saver.get_set_group(
+                        where=self.h5saver.current_scan_group.path + '/Detector000/Data0D',
+                        name='Ch000'),
+                    data_dict=dict(data=np.asarray([delay])),
+                    title='Current phase or delay',
+                    enlargeable=True)
+
+                self.time_axis_arrays = self.h5saver.add_data(
+                    channel_group=self.h5saver.get_set_group(
+                        where=self.h5saver.current_scan_group.path + '/Detector000/Data0D',
+                        name='Ch001'),
+                    data_dict=dict(data=np.asarray(time.mktime(datetime.now().timetuple()))),
+                    title='Time since epoch',
+                    enlargeable=True)
+
+                self.h5saver.h5_file.flush()
+
             else:
-                self.h5_saver.add_data(self.h5_timegroup, data_dict=dict(data=self.timearray), title='time')
-                self.h5_saver.add_data(self.h5_delaygroup, data_dict=dict(data=self.delayarray), tile='delay')
-                self.recording = False
-                self.close_saver()
+                self.phase_arrays.append(np.asarray(delay))
+                self.time_axis_arrays.append(np.asarray(time.mktime(datetime.now().timetuple())))
+                self.h5saver.h5_file.flush()
 
         return InputFromDetector([delay])
 

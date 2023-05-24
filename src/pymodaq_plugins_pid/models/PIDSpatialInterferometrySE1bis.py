@@ -57,8 +57,8 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
 
         {'title': 'Spectrum ROI', 'name': 'spectrum', 'type': 'group', 'expanded': False, 'visible': True,
          'children': [
-             {'title': 'Omega min', 'name': 'omega_min', 'type': 'float', 'value': 0.0},
-             {'title': 'Omega max', 'name': 'omega_max', 'type': 'float', 'value': 1.0}]},
+             {'title': 'Omega min', 'name': 'omega_min', 'type': 'int', 'value': 0},
+             {'title': 'Omega max', 'name': 'omega_max', 'type': 'int', 'value': 1}]},
         {'title': 'Inverse Fourier', 'name': 'inverse_fourier', 'type': 'group', 'expanded': False, 'visible': True,
          'children': [
              {'title': 'N sampling (power of 2)', 'name': 'N_samp_power', 'type': 'float', 'value': 13},
@@ -118,6 +118,8 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
         self.lr = pg.LinearRegionItem([0, 1])
         self.lr.setZValue(-10)
         self.tf_viewer.viewer.plotwidget.addItem(self.lr)
+
+        self.lr.sigRegionChangeFinished.connect(self.update_tf_roi)
 
         # Plot de la phase
         self.dock_phase = Dock('Phase')
@@ -183,6 +185,16 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
                 'Target Value (fs): ' if param.value() else 'Target Value (deg): ')
             self.pid_controller.input_viewer.update_labels(
                 'Input (fs)' if param.value() else 'Input (deg)')
+
+    def update_tf_roi(self, linear_roi):
+        pos = linear_roi.getRegion()
+        self.settings.child("spectrum", "omega_min").setValue(
+            round(pos[0])
+        )
+        self.settings.child("spectrum", "omega_max").setValue(
+            round(pos[1])
+        )
+        linear_roi.setRegion((round(pos[0]),round(pos[1])))
 
     def init_saver(self):
            # First time we click on the button
@@ -290,11 +302,14 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
         tf = np.fft.rfft(np.fft.fftshift(self.fringes))
         # S = ft(self.fringes)
 
-        x_min = int(self.lr.getRegion()[0])
-        x_max = int(self.lr.getRegion()[1])
+        x_min = self.settings.child("spectrum", "omega_min").value()
+        x_max = self.settings.child("spectrum", "omega_max").value()
         # phase_roi = np.unwrap(np.angle(S[x_min:x_max]))
 
-        phiwrapped = np.mean(np.angle(tf)[x_min:x_max])
+        if len(tf[x_min:x_max]) != 0:
+            phiwrapped = np.mean(np.angle(tf)[x_min:x_max])
+        else:
+            phiwrapped =0
         phi = np.unwrap(np.concatenate((self.phase_vector, [phiwrapped])))[-1]
         self.phase_vector.append(phi)
         self.phi = phi

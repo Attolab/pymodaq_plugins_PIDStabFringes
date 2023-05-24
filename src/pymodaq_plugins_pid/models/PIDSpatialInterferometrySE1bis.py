@@ -29,7 +29,7 @@ logger = set_logger(get_module_name(__file__))
 class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
     limits = dict(max=dict(state=False, value=1),
                   min=dict(state=False, value=-1), )
-    konstants = dict(kp=1.0, ki=0.0, kd=0.0)
+    konstants = dict(kp=0.3, ki=0.0, kd=0.0)
 
     Nsetpoints = 1
     setpoint_ini = [0]
@@ -39,12 +39,12 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
     detectors_name = ['Camera PID']
 
     params = [
-        {'title': 'Wavelength (nm)', 'name': 'wavelength', 'type': 'float', 'value': 800},
-        {'title': 'Actuator unit (m)', 'name': 'unit', 'type': 'float', 'value': 1e-6},
+        {'title': 'Wavelength (nm)', 'name': 'wavelength', 'type': 'float', 'value': 790},
+        {'title': 'Actuator unit (m)', 'name': 'unit', 'type': 'float', 'value': -1e-6},
         {'title': 'Units', 'name': 'unitsGroup', 'type': 'group', 'expanded': True, 'visible': True,
          'children': [
              {'title': 'Convert to femto', 'name': 'convertFemto', 'type': 'bool', 'value': True},
-             {'title': 'Actuator unit (m)', 'name': 'actUnits', 'type': 'float', 'value': 1e-6},
+             {'title': 'Actuator unit (m)', 'name': 'actUnits', 'type': 'float', 'value': -1e-6},
              {'title': 'Set delay to zero', 'name': 'setDelayToZero', 'type': 'bool_push', 'value': False}
          ]},
         {'title': 'Stats', 'name': 'statsGroup', 'type': 'group', 'expanded': True, 'visible': True,

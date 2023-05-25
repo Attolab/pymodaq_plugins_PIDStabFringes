@@ -20,7 +20,7 @@ from pymodaq.daq_utils.plotting.viewer2D.viewer_2D_main import Viewer2D
 from pymodaq.daq_utils.daq_utils import Axis, set_logger, get_module_name, DataFromPlugins
 from pymodaq.daq_utils.math_utils import ft, ift
 from pymodaq.daq_utils.h5modules import H5Saver
-
+from pymodaq.daq_utils.parameter import utils as putils
 from pymodaq.daq_scan import DAQ_Scan
 
 logger = set_logger(get_module_name(__file__))
@@ -40,7 +40,6 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
 
     params = [
         {'title': 'Wavelength (nm)', 'name': 'wavelength', 'type': 'float', 'value': 790},
-        {'title': 'Actuator unit (m)', 'name': 'unit', 'type': 'float', 'value': -1e-6},
         {'title': 'Units', 'name': 'unitsGroup', 'type': 'group', 'expanded': True, 'visible': True,
          'children': [
              {'title': 'Convert to femto', 'name': 'convertFemto', 'type': 'bool', 'value': True},
@@ -55,19 +54,18 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
              {'title': 'Number of delays', 'name': 'N_record', 'type': 'int', 'value': 1e3},
          ]},
 
-        {'title': 'Spectrum ROI', 'name': 'spectrum', 'type': 'group', 'expanded': False, 'visible': True,
+        {'title': 'FFT peak settings', 'name': 'spectrum', 'type': 'group', 'expanded': True, 'visible': True,
          'children': [
-             {'title': 'Omega min', 'name': 'omega_min', 'type': 'int', 'value': 0},
-             {'title': 'Omega max', 'name': 'omega_max', 'type': 'int', 'value': 1}]},
-        {'title': 'Inverse Fourier', 'name': 'inverse_fourier', 'type': 'group', 'expanded': False, 'visible': True,
+             {'title': 'First index', 'name': 'omega_min', 'type': 'int', 'value': 0},
+             {'title': 'Last index', 'name': 'omega_max', 'type': 'int', 'value': 1},
+             {'title': 'Peak threshold', 'name': 'peak_threshold', 'type': 'float', 'value': 0.5}]},
+        {'title': 'Camera ROI', 'name': 'roi', 'type': 'group', 'expanded': False, 'visible': True,
          'children': [
-             {'title': 'N sampling (power of 2)', 'name': 'N_samp_power', 'type': 'float', 'value': 13},
-             {'title': 'Centering', 'name': 'centering', 'type': 'bool', 'value': True},
-             {'title': 'ROI', 'name': 'ifft_roi', 'type': 'group', 'expanded': True, 'visible': True,
-              'children': [
-                  {'title': 't min', 'name': 't_min', 'type': 'float', 'value': 0.0},
-                  {'title': 't max', 'name': 't_max', 'type': 'float', 'value': 1.0}]}]},
-        {'title': 'Show plots', 'name': 'show_plots', 'type': 'group', 'expanded': True, 'visible': True,
+             {'title': 'x0', 'name': 'roi_x0', 'type': 'int', 'value': 0},
+             {'title': 'y0', 'name': 'roi_y0', 'type': 'int', 'value': 0},
+             {'title': 'width', 'name': 'roi_width', 'type': 'int', 'value': 100},
+             {'title': 'height', 'name': 'roi_height', 'type': 'int', 'value': 100}]},
+        {'title': 'Show plots', 'name': 'show_plots', 'type': 'group', 'expanded': False, 'visible': True,
          'children': [
              {'title': 'Show camera data', 'name': 'show_camera', 'type': 'bool', 'value': True},
              {'title': 'Show ROI', 'name': 'show_roi', 'type': 'bool', 'value': True},
@@ -96,30 +94,37 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
         self.camera_viewer.show_data(DataFromPlugins(data=[np.random.normal(size=(100, 100))], labels='Camera Image'))
         self.camera_viewer.view.get_action('ROIselect').trigger()
         self.camera_viewer.view.ROIselect.setPen(pen=(5, 30))
-        self.camera_viewer.view.ROIselect.setSize([100, 100])
+        self.camera_viewer.view.ROIselect.setSize([self.settings.child('roi','roi_width').value(), self.settings.child('roi','roi_height').value()])
+        self.camera_viewer.view.ROIselect.setPos([self.settings.child('roi', 'roi_x0').value(), self.settings.child('roi', 'roi_y0').value()])
+        self.camera_viewer.view.ROIselect.sigRegionChangeFinished.connect(self.update_camera_roi)
 
-        # Plot des franges
-        self.dock_fringes = Dock('Fringes')
-        widget_fringes = QtWidgets.QWidget()
-        self.fringe_viewer = Viewer1D(widget_fringes)
-        self.dock_fringes.addWidget(widget_fringes)
-        self.pid_controller.dock_area.addDock(self.dock_fringes, 'right', self.dock_camera)
-        self.fringe_viewer.show_data([np.random.normal(size=100)], labels=['Fringe lineout'])
-        logger.info('Init Widget: Dock ROI')
 
         # Plot de la TF des franges
         self.dock_tf = Dock('Fourier transform')
         widget_tf = QtWidgets.QWidget()
         self.tf_viewer = Viewer1D(widget_tf)
         self.dock_tf.addWidget(widget_tf)
-        self.pid_controller.dock_area.addDock(self.dock_tf, 'bottom', self.dock_fringes)
+        self.pid_controller.dock_area.addDock(self.dock_tf, 'right', self.dock_camera)
         self.tf_viewer.show_data([np.random.normal(size=100)], labels=['Fourier Transform'])
         # ROI sur la tf
-        self.lr = pg.LinearRegionItem([0, 1])
+        self.lr = pg.LinearRegionItem([self.settings.child('spectrum', 'omega_min').value(), self.settings.child('spectrum', 'omega_max').value()])
         self.lr.setZValue(-10)
         self.tf_viewer.viewer.plotwidget.addItem(self.lr)
-
         self.lr.sigRegionChangeFinished.connect(self.update_tf_roi)
+
+        # Line for threshold
+        self.tf_threshold = pg.InfiniteLine(self.settings.child('spectrum', 'peak_threshold').value(), angle=0, movable=True)
+        self.tf_viewer.viewer.plotwidget.addItem(self.tf_threshold)
+        self.tf_threshold.sigPositionChangeFinished.connect(self.update_tf_threshold)
+
+        # Plot des franges
+        self.dock_fringes = Dock('Fringes')
+        widget_fringes = QtWidgets.QWidget()
+        self.fringe_viewer = Viewer1D(widget_fringes)
+        self.dock_fringes.addWidget(widget_fringes)
+        self.pid_controller.dock_area.addDock(self.dock_fringes, 'bottom', self.dock_camera)
+        self.fringe_viewer.show_data([np.random.normal(size=100)], labels=['Fringe lineout'])
+        logger.info('Init Widget: Dock ROI')
 
         # Plot de la phase
         self.dock_phase = Dock('Phase')
@@ -186,6 +191,26 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
             self.pid_controller.input_viewer.update_labels(
                 'Input (fs)' if param.value() else 'Input (deg)')
 
+        if param.name() == 'omega_min' or 'omega_max':
+            self.lr.sigRegionChangeFinished.disconnect(self.update_tf_roi)
+            self.lr.setRegion([self.settings.child('spectrum', 'omega_min').value(),
+                                           self.settings.child('spectrum', 'omega_max').value()])
+            self.lr.sigRegionChangeFinished.connect(self.update_tf_roi)
+
+        if param.name() == 'peak_threshold':
+            self.tf_threshold.sigPositionChangeFinished.disconnect(self.update_tf_threshold)
+            self.tf_threshold.setPos(param.value())
+            self.tf_threshold.sigPositionChangeFinished.connect(self.update_tf_threshold)
+
+        if param.name() in putils.iter_children(
+                    self.settings.child("roi"), []):
+            self.camera_viewer.view.ROIselect.sigRegionChangeFinished.disconnect(self.update_camera_roi)
+            self.camera_viewer.view.ROIselect.setSize(
+                [self.settings.child('roi', 'roi_width').value(), self.settings.child('roi', 'roi_height').value()])
+            self.camera_viewer.view.ROIselect.setPos(
+                [self.settings.child('roi', 'roi_x0').value(), self.settings.child('roi', 'roi_y0').value()])
+            self.camera_viewer.view.ROIselect.sigRegionChangeFinished.connect(self.update_camera_roi)
+
     def update_tf_roi(self, linear_roi):
         pos = linear_roi.getRegion()
         self.settings.child("spectrum", "omega_min").setValue(
@@ -195,6 +220,21 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
             round(pos[1])
         )
         linear_roi.setRegion((round(pos[0]),round(pos[1])))
+
+    def update_tf_threshold(self, line):
+        pos = line.value()
+        self.settings.child("spectrum", "peak_threshold").setValue(
+            pos
+        )
+
+    def update_camera_roi(self, roi):
+        (x,y) = roi.pos()
+        (w,h) = roi.size()
+        self.settings.child('roi', 'roi_width').setValue(w)
+        self.settings.child('roi', 'roi_height').setValue(h)
+        self.settings.child('roi', 'roi_x0').setValue(x)
+        self.settings.child('roi', 'roi_y0').setValue(y)
+
 
     def init_saver(self):
            # First time we click on the button
@@ -306,13 +346,33 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
         x_max = self.settings.child("spectrum", "omega_max").value()
         # phase_roi = np.unwrap(np.angle(S[x_min:x_max]))
 
-        if len(tf[x_min:x_max]) != 0:
+        if len(tf[x_min:x_max]) != 0:   # Check that ROI is not empty
             phiwrapped = np.mean(np.angle(tf)[x_min:x_max])
         else:
             phiwrapped =0
-        phi = np.unwrap(np.concatenate((self.phase_vector, [phiwrapped])))[-1]
-        self.phase_vector.append(phi)
-        self.phi = phi
+
+        # Check that FFT peak is sufficiently strong
+        if np.mean(np.abs(tf[x_min:x_max])) > self.settings.child('spectrum', 'peak_threshold'). value():
+            new_phase_point = True
+            phi = np.unwrap(np.concatenate((self.phase_vector, [phiwrapped])))[-1]
+            self.phase_vector.append(phi)
+            self.phi = phi
+            rms = np.std(self.phase_vector)
+
+            if self.settings.child('unitsGroup', 'convertFemto').value():
+                delay = (self.phi - self.offset) * self.wavelength * 1e-9 / (2 * np.pi * 3e8) * 1e15
+                rms *= self.wavelength * 1e-9 / (2 * np.pi * 3e8) * 1e15
+            else:
+                delay = (self.phi - self.offset) / np.pi * 180
+                rms *= np.pi / 180
+
+            self.settings.child('statsGroup', 'RMS').setValue(rms)
+
+
+        else:   # if FFT peak is too weak we just return the set point so that the PID does nothing
+            new_phase_point = False
+            delay = self.pid_controller.setpoints[0]
+
         if self.settings.child('show_plots', 'show_camera').value():
             self.camera_viewer.show_data(DataFromPlugins(data=[image]))
         if self.settings.child('show_plots', 'show_roi').value():
@@ -320,19 +380,9 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
         if self.settings.child('show_plots', 'show_fft').value():
             self.tf_viewer.show_data([np.abs(tf)])
         if self.settings.child('show_plots', 'show_phase').value():
-            tmp = np.angle(np.exp(np.array(self.phase_vector) * 1j))
-            self.phase_viewer.show_data([[tmp[-1]]])
-
-        rms = np.std(self.phase_vector)
-
-        if self.settings.child('unitsGroup', 'convertFemto').value():
-            delay = (self.phi - self.offset) * self.wavelength * 1e-9 / (2 * np.pi * 3e8) * 1e15
-            rms *= self.wavelength * 1e-9 / (2 * np.pi * 3e8) * 1e15
-        else:
-            delay = (self.phi - self.offset) / np.pi * 180
-            rms *= np.pi/180
-
-        self.settings.child('statsGroup', 'RMS').setValue(rms)
+            if new_phase_point:
+                tmp = np.angle(np.exp(np.array(self.phase_vector) * 1j))
+                self.phase_viewer.show_data([[tmp[-1]]])
 
         if self.recording:
             if self.phase_arrays is None:
@@ -405,7 +455,7 @@ def main():
     win.setWindowTitle('PyMoDAQ Dashboard')
 
     dashboard = DashBoard(area)
-    file = Path(get_set_preset_path()).joinpath("mock_fringe_stabilization.xml")
+    file = Path(get_set_preset_path()).joinpath("mock_stab.xml")
     if file.exists():
         dashboard.set_preset_mode(file)
         # prog.load_scan_module()

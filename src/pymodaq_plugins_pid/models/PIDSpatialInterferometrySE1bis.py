@@ -7,6 +7,7 @@ import scipy.fft as fft
 from collections import deque
 from datetime import datetime
 import os, time
+import logging
 
 from pyqtgraph.Qt import QtCore
 import pyqtgraph as pg
@@ -17,14 +18,14 @@ from pymodaq.pid.utils import PIDModelGeneric, OutputToActuator, InputFromDetect
 from pymodaq.daq_utils.plotting.viewer0D.viewer0D_main import Viewer0D
 from pymodaq.daq_utils.plotting.viewer1D.viewer1D_main import Viewer1D
 from pymodaq.daq_utils.plotting.viewer2D.viewer_2D_main import Viewer2D
-from pymodaq.daq_utils.daq_utils import Axis, set_logger, get_module_name, DataFromPlugins
+from pymodaq.daq_utils.daq_utils import Axis, set_logger, get_module_name, DataFromPlugins, ThreadCommand
 from pymodaq.daq_utils.math_utils import ft, ift
 from pymodaq.daq_utils.h5modules import H5Saver
 from pymodaq.daq_utils.parameter import utils as putils
 from pymodaq.daq_scan import DAQ_Scan
 
 logger = set_logger(get_module_name(__file__))
-
+pid_logger = logging.getLogger('pymodaq.pid_controller')
 
 class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
     limits = dict(max=dict(state=False, value=1),
@@ -353,6 +354,12 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
 
         # Check that FFT peak is sufficiently strong
         if np.mean(np.abs(tf[x_min:x_max])) > self.settings.child('spectrum', 'peak_threshold'). value():
+            # Restart PID in case it was stopped by fft peak too low
+            if not self.pid_controller.pause_action.isChecked():
+                pid_logger.disabled = True #avoid having hundreds of messages in log
+                self.pid_controller.command_pid.emit(ThreadCommand('pause_PID', [False]))
+                pid_logger.disabled = False
+
             new_phase_point = True
             phi = np.unwrap(np.concatenate((self.phase_vector, [phiwrapped])))[-1]
             self.phase_vector.append(phi)
@@ -370,6 +377,11 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
 
 
         else:   # if FFT peak is too weak we just return the set point so that the PID does nothing
+            # Force the PID to do nothing
+            pid_logger.disabled = True  # avoid having hundreds of messages in log
+            self.pid_controller.command_pid.emit(ThreadCommand('pause_PID', [True]))
+            pid_logger.disabled = False
+
             new_phase_point = False
             delay = self.pid_controller.setpoints[0]
 

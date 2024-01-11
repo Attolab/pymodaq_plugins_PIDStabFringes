@@ -85,7 +85,7 @@ class PIDModelSpatialInterferometrySE1bis(PIDModelGeneric):
 
         self.img1a = pg.ImageItem()
         self.img1a.setImage(np.random.normal(size = (self.settings['roi','roi_x0']+self.settings['roi','roi_width'],self.settings['roi','roi_y0']+self.settings['roi','roi_height'])))
-        w1 = pg.PlotWidget(title = "Camera Plot")¶
+        w1 = pg.PlotWidget(title = "Camera Plot")
         w1.addItem(self.img1a)
         self.dock_camera.addWidget(w1)
         #add ROI

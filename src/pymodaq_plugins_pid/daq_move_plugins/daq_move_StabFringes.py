@@ -1,6 +1,6 @@
 from pymodaq.control_modules.move_utility_classes import DAQ_Move_base  # base class
-from pymodaq.daq_move.utility_classes import comon_parameters  # common set of parameters for all actuators
-from pymodaq.daq_utils.daq_utils import ThreadCommand, getLineInfo  # object used to send info back to the main thread
+from pymodaq.control_modules.move_utility_classes import comon_parameters_fun, main
+from pymodaq.utils.daq_utils import ThreadCommand, getLineInfo  # object used to send info back to the main thread
 from easydict import EasyDict as edict  # type of dict
 from pymodaq_plugins_pid.hardware.stabfringesmock import StabFringesController
 
@@ -24,21 +24,12 @@ class DAQ_Move_StabFringes(DAQ_Move_base):
     _epsilon = 1
 
     params = [  # elements to be added in order to control your custom stage
-
-        {'title': 'MultiAxes:', 'name': 'multiaxes', 'type': 'group', 'visible': is_multiaxes, 'children': [
-            {'title': 'is Multiaxes:', 'name': 'ismultiaxes', 'type': 'bool', 'value': is_multiaxes,
-                'default': False},
-            {'title': 'Status:', 'name': 'multi_status', 'type': 'list', 'value': 'Master',
-                'limits': ['Master', 'Slave']},
-            {'title': 'Axis:', 'name': 'axis', 'type': 'list', 'limits': stage_names},
-
-        ]},
         {'title':'Saved Positions', 'name': 'savedPositions', 'type':'group', 'children': [
             {'title': 'Saved Positions', 'name': 'positionsList', 'type':'list', 'limits':[0.0]}, 
             {'title': 'Save Current', 'name': 'saveCurrPos', 'type':'bool_push', 'value':False}, 
             {'title': 'Reset', 'name': 'resetSavedPos', 'type':'bool_push', 'value':False}, 
         ]
-        }] + comon_parameters
+        }] +  comon_parameters_fun(is_multiaxes, stage_names, epsilon=_epsilon)
 
     def __init__(self, parent=None, params_state=None):
         super().__init__(parent, params_state)
@@ -46,7 +37,7 @@ class DAQ_Move_StabFringes(DAQ_Move_base):
         self.settings.child('savedPositions', 'positionsList').setLimits(self.defaultLims)
 
 
-    def check_position(self):
+    def get_actuator_value(self):
         """
             Get the current position from the hardware with scaling conversion.
 
@@ -62,8 +53,7 @@ class DAQ_Move_StabFringes(DAQ_Move_base):
         pos = self.controller.check_position(self.settings.child('multiaxes', 'axis').value())
         # print('Pos from controller is {}'.format(pos))
         # pos=self.get_position_with_scaling(pos)
-        self.current_position = pos
-        self.emit_status(ThreadCommand('check_position', [pos]))
+        self.current_value = pos
         return pos
 
     def close(self):
@@ -93,7 +83,7 @@ class DAQ_Move_StabFringes(DAQ_Move_base):
             self.move_Abs(param.value())
         if param.name() == 'saveCurrPos':
             print(self.settings.child('savedPositions', 'positionsList').opts['limits'])
-            self.settings.child('savedPositions', 'positionsList').setLims(self.settings.child('savedPositions', 'positionsList').opts['limits'] + [self.current_position])
+            self.settings.child('savedPositions', 'positionsList').setLims(self.settings.child('savedPositions', 'positionsList').opts['limits'] + [self.current_value])
         if param.name() == 'resetSavedPos':
             self.settings.child('savedPositions', 'positionsList').setLimits(self.defaultLims)
             print(self.settings.child('savedPositions', 'positionsList').opts['limits'])
@@ -145,7 +135,7 @@ class DAQ_Move_StabFringes(DAQ_Move_base):
             self.status.info = info
             self.status.controller = self.controller
             self.status.initialized = True
-            return self.status
+            return self.status.info, self.status.initialized
 
         except Exception as e:
             self.emit_status(ThreadCommand('Update_Status', [getLineInfo() + str(e), 'log']))
@@ -175,7 +165,7 @@ class DAQ_Move_StabFringes(DAQ_Move_base):
         self.controller.move_abs(self.target_position, self.settings.child('multiaxes', 'axis').value())
 
 
-    def move_Rel(self, position):
+    def move_rel(self, position):
         """
             Make the relative move from the given position after thread command signal was received in DAQ_Move_main.
 
@@ -190,8 +180,8 @@ class DAQ_Move_StabFringes(DAQ_Move_base):
             hardware.set_position_with_scaling, DAQ_Move_base.poll_moving
 
         """
-        position = self.check_bound(self.current_position + position) - self.current_position
-        self.target_position = position + self.current_position
+        position = self.check_bound(self.current_value + position) - self.current_value
+        self.target_position = position + self.current_value
 
         self.controller.move_rel(position, self.settings.child('multiaxes', 'axis').value())
 

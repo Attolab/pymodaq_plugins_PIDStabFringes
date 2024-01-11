@@ -1,15 +1,11 @@
-from qtpy.QtCore import QThread
-from qtpy import QtWidgets
-import numpy as np
-import pymodaq.daq_utils.daq_utils as mylib
 from pymodaq.control_modules.viewer_utility_classes import DAQ_Viewer_base, main
 from easydict import EasyDict as edict
-from collections import OrderedDict
-from pymodaq.daq_utils.daq_utils import ThreadCommand, getLineInfo, DataFromPlugins, Axis, my_moment
+from pymodaq.utils.daq_utils import ThreadCommand, getLineInfo
 from pymodaq.control_modules.viewer_utility_classes import comon_parameters
 from pymodaq_plugins_pid.hardware.stabfringesmock import StabFringesController
+from pymodaq.utils.data import Axis, DataFromPlugins, DataToExport
 # from scipy.ndimage.measurements import center_of_mass
-
+import numpy as np
 '''
 Mock 2D viewer. Creates a 2D sinus with noise and drift for stabilisation in a PID.
 Works in sync with daq_move_StabFringes, thourgh a global x000 variable, to have a fake feedback from the actuator. 
@@ -145,7 +141,13 @@ class DAQ_2DViewer_StabFringes(DAQ_Viewer_base):
         """
 
         image = self.controller.get_data_output(data_dim='2D')
-        self.data_grabed_signal.emit([DataFromPlugins(name='Mock2DPID', data=[image], dim='Data2D'),])
+        (Nx, Ny) = image.shape
+        xaxis = np.linspace(0, Nx, Nx, endpoint=False)
+        yaxis = np.linspace(0, Ny, Ny, endpoint=False)
+        y_axis = Axis(data=yaxis, label='Pixels', index=0)
+        x_axis = Axis(data=xaxis, label='Pixels', index=1)
+        axes = [x_axis, y_axis]
+        self.dte_signal.emit(DataToExport(name='MOCK Camera PID', data=[DataFromPlugins(name='Mock2DPID', data=[image], dim='Data2D', axes=axes)]))
 
 
     def stop(self):

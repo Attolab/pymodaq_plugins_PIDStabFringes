@@ -1,33 +1,26 @@
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import QThread, pyqtSignal
 import numpy as np
 from pyqtgraph.dockarea import Dock
-import scipy.signal.windows as windows
-import scipy.fft as fft
 from collections import deque
 from datetime import datetime
 import os, time
 import logging
+from typing import List
 
-from pyqtgraph.Qt import QtCore
 import pyqtgraph as pg
 
-from scipy.interpolate import interp1d
-from pymodaq.daq_utils.daq_utils import linspace_step
-from pymodaq.pid.utils import PIDModelGeneric, OutputToActuator, InputFromDetector
-from pymodaq.daq_utils.plotting.viewer0D.viewer0D_main import Viewer0D
-from pymodaq.daq_utils.plotting.viewer1D.viewer1D_main import Viewer1D
-from pymodaq.daq_utils.plotting.viewer2D.viewer_2D_main import Viewer2D
-from pymodaq.daq_utils.daq_utils import Axis, set_logger, get_module_name, DataFromPlugins, ThreadCommand
-from pymodaq.daq_utils.math_utils import ft, ift
-from pymodaq.daq_utils.h5modules import H5Saver
-from pymodaq.daq_utils.parameter import utils as putils
-from pymodaq.daq_scan import DAQ_Scan
+from pymodaq.extensions.pid.utils import PIDModelGeneric, DataToActuatorPID
+from pymodaq.utils.daq_utils import ThreadCommand
+from pymodaq.utils.h5modules.saving import H5Saver
+from pymodaq.utils.parameter import utils as putils
+from pymodaq.utils.data import DataToExport, DataActuator, DataCalculated, DataFromPlugins
+from pymodaq.utils.logger import set_logger, get_module_name
+from pymodaq.utils.data import Axis
 
 logger = set_logger(get_module_name(__file__))
 pid_logger = logging.getLogger('pymodaq.pid_controller')
 
-class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
+class PIDModelSpatialInterferometrySE1bis(PIDModelGeneric):
     limits = dict(max=dict(state=False, value=1),
                   min=dict(state=False, value=-1), )
     konstants = dict(kp=0.3, ki=0.0, kd=0.0)
@@ -50,9 +43,6 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
         {'title': 'Stats', 'name': 'statsGroup', 'type': 'group', 'expanded': True, 'visible': True,
          'children': [
              {'title': 'RMS', 'name': 'RMS', 'type': 'float', 'value': 0.0, 'readonly': True},
-             {'title': 'Record delays', 'name': 'record', 'type': 'bool_push', 'value': False},
-             {'title': 'Stop recording', 'name': 'recordStop', 'type': 'bool_push', 'value': False, 'visible': False},
-             {'title': 'Number of delays', 'name': 'N_record', 'type': 'int', 'value': 1e3},
          ]},
 
         {'title': 'FFT peak settings', 'name': 'spectrum', 'type': 'group', 'expanded': True, 'visible': True,
@@ -89,58 +79,76 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
         self.dock_camera = Dock("Camera data")
         widget_camera = QtWidgets.QWidget()
         logger.info('Init Widget: Dock Camera')
-        self.camera_viewer = Viewer2D(widget_camera)
+        # self.camera_viewer = Viewer2D(widget_camera)
         self.dock_camera.addWidget(widget_camera)
         self.pid_controller.dock_area.addDock(self.dock_camera)
-        self.camera_viewer.show_data(DataFromPlugins(data=[np.random.normal(size=(100, 100))], labels='Camera Image'))
-        self.camera_viewer.view.get_action('ROIselect').trigger()
-        self.camera_viewer.view.ROIselect.setPen(pen=(5, 30))
-        self.camera_viewer.view.ROIselect.setSize([self.settings.child('roi','roi_width').value(), self.settings.child('roi','roi_height').value()])
-        self.camera_viewer.view.ROIselect.setPos([self.settings.child('roi', 'roi_x0').value(), self.settings.child('roi', 'roi_y0').value()])
-        self.camera_viewer.view.ROIselect.sigRegionChangeFinished.connect(self.update_camera_roi)
+
+        self.img1a = pg.ImageItem()
+        self.img1a.setImage(np.random.normal(size = (self.settings['roi','roi_x0']+self.settings['roi','roi_width'],self.settings['roi','roi_y0']+self.settings['roi','roi_height'])))
+        w1 = pg.PlotWidget(title = "Camera Plot")¶
+        w1.addItem(self.img1a)
+        self.dock_camera.addWidget(w1)
+        #add ROI
+        self.roi = pg.RectROI([self.settings['roi','roi_x0'],self.settings['roi','roi_y0']],[self.settings['roi','roi_width'],self.settings['roi','roi_height']],pen=(5,30))
+        self.roi.sigRegionChangeFinished.connect(self.update_camera_roi)
+        self.roi.addRotateHandle([1,0],[0.5,0.5])
+        w1.addItem(self.roi)
+        # self.camera_viewer.show_data(DataFromPlugins(data=[np.random.normal(size=(100, 100))], labels='Camera Image', name='Camera Image'))
+        # self.camera_viewer.view.get_action('ROIselect').trigger()
+        # self.camera_viewer.view.ROIselect.setPen(pen=(5, 30))
+        # self.camera_viewer.view.ROIselect.setSize([self.settings.child('roi','roi_width').value(), self.settings.child('roi','roi_height').value()])
+        # self.camera_viewer.view.ROIselect.setPos([self.settings.child('roi', 'roi_x0').value(), self.settings.child('roi', 'roi_y0').value()])
+        # self.camera_viewer.view.ROIselect.sigRegionChangeFinished.connect(self.update_camera_roi)
 
 
         # Plot de la TF des franges
         self.dock_tf = Dock('Fourier transform')
-        widget_tf = QtWidgets.QWidget()
-        self.tf_viewer = Viewer1D(widget_tf)
-        self.dock_tf.addWidget(widget_tf)
+        u = pg.PlotWidget(title="Fourier transform")
+        self.tf_viewer = u.plot()
+        self.dock_tf.addWidget(u)
         self.pid_controller.dock_area.addDock(self.dock_tf, 'right', self.dock_camera)
-        self.tf_viewer.show_data([np.random.normal(size=100)], labels=['Fourier Transform'])
+        self.tf_viewer.setData(y = np.random.normal(size=100))
+
         # ROI sur la tf
         self.lr = pg.LinearRegionItem([self.settings.child('spectrum', 'omega_min').value(), self.settings.child('spectrum', 'omega_max').value()])
         self.lr.setZValue(-10)
-        self.tf_viewer.viewer.plotwidget.addItem(self.lr)
+        u.addItem(self.lr)
         self.lr.sigRegionChangeFinished.connect(self.update_tf_roi)
 
-        # Line for threshold
+        # # Line for threshold
         self.tf_threshold = pg.InfiniteLine(self.settings.child('spectrum', 'peak_threshold').value(), angle=0, movable=True)
-        self.tf_viewer.viewer.plotwidget.addItem(self.tf_threshold)
+        u.addItem(self.tf_threshold)
         self.tf_threshold.sigPositionChangeFinished.connect(self.update_tf_threshold)
 
         # Plot des franges
         self.dock_fringes = Dock('Fringes')
-        widget_fringes = QtWidgets.QWidget()
-        self.fringe_viewer = Viewer1D(widget_fringes)
-        self.dock_fringes.addWidget(widget_fringes)
+        u = pg.PlotWidget(title="Fringes")
+        # widget_fringes = QtWidgets.QWidget()
+        self.fringe_viewer = u.plot()#Viewer1D(widget_fringes)
+        self.dock_fringes.addWidget(u)
         self.pid_controller.dock_area.addDock(self.dock_fringes, 'bottom', self.dock_camera)
-        self.fringe_viewer.show_data([np.random.normal(size=100)], labels=['Fringe lineout'])
+        self.fringe_viewer.setData(y = np.random.normal(size=100))
         logger.info('Init Widget: Dock ROI')
 
         # Plot de la phase
         self.dock_phase = Dock('Phase')
-        widget_phase = QtWidgets.QWidget()
-        self.phase_viewer = Viewer0D(widget_phase)
-        self.dock_phase.addWidget(widget_phase)
+        p = pg.PlotWidget(title="Phase")
+        self.phase_viewer = p.plot()
+        self.dock_phase.addWidget(p)
         self.pid_controller.dock_area.addDock(self.dock_phase, 'bottom', self.dock_tf)
-        self.phase_viewer.show_data([np.random.normal(size=100)])
+        self.phase_viewer.setData(y=np.random.normal(size = 100))
 
         # add unit
-        self.pid_controller.toolbar_layout.itemAt(8).widget().setText(
-            'Current Value (fs): ' if self.settings.child('unitsGroup', 'convertFemto').value() else 'Current Value (deg): ')
-        self.pid_controller.toolbar_layout.itemAt(7).widget().setText(
-            'Target Value (fs): ' if self.settings.child('unitsGroup',
-                                                          'convertFemto').value() else 'Target Value (deg): ')
+        if self.settings.child('unitsGroup', 'convertFemto').value():
+            self.currlabel = QtWidgets.QLabel('Current Value (fs): ')
+            self.setlabel = QtWidgets.QLabel('Target Value (fs): ')
+
+        else:
+            self.currlabel = QtWidgets.QLabel('Current Value (deg): ')
+            self.setlabel = QtWidgets.QLabel('Target Value (deg): ')
+
+        self.pid_controller.toolbar_layout.addWidget(self.currlabel, 4, 1, 1, 1)
+        self.pid_controller.toolbar_layout.addWidget(self.setlabel , 3, 1, 1, 1)
 
     def update_settings(self, param):
         """
@@ -175,22 +183,16 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
         if param.name() == 'setDelayToZero':
             self.offset = self.phi
             print('The offset phase is now: ', self.offset)
-        if param.name() == 'record':
-            if (self.h5saver.h5_file_name is None) | (self.h5saver.h5_file_name == ''):
-                if self.init_saver():   # File was initialized correctly
-                    self.start_saver()
-            else:
-                self.start_saver()
-        if param.name() == 'recordStop':
-            self.close_saver()
 
         if param.name() == 'convertFemto':
-            self.pid_controller.toolbar_layout.itemAt(8).widget().setText(
-                'Current Value (fs): ' if param.value() else 'Current Value (deg): ')
-            self.pid_controller.toolbar_layout.itemAt(7).widget().setText(
-                'Target Value (fs): ' if param.value() else 'Target Value (deg): ')
-            self.pid_controller.input_viewer.update_labels(
-                'Input (fs)' if param.value() else 'Input (deg)')
+            if self.settings.child('unitsGroup', 'convertFemto').value():
+                label1 = 'Current Value (fs): '
+                label2 = 'Target Value (fs): '
+            else:
+                label1 = 'Current Value (deg): '
+                label2 = 'Target Value (deg): '
+            self.currlabel.setText(label1)
+            self.setlabel.setText(label2)
 
         if param.name() == 'omega_min' or 'omega_max':
             self.lr.sigRegionChangeFinished.disconnect(self.update_tf_roi)
@@ -203,14 +205,14 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
             self.tf_threshold.setPos(param.value())
             self.tf_threshold.sigPositionChangeFinished.connect(self.update_tf_threshold)
 
-        if param.name() in putils.iter_children(
-                    self.settings.child("roi"), []):
-            self.camera_viewer.view.ROIselect.sigRegionChangeFinished.disconnect(self.update_camera_roi)
-            self.camera_viewer.view.ROIselect.setSize(
-                [self.settings.child('roi', 'roi_width').value(), self.settings.child('roi', 'roi_height').value()])
-            self.camera_viewer.view.ROIselect.setPos(
-                [self.settings.child('roi', 'roi_x0').value(), self.settings.child('roi', 'roi_y0').value()])
-            self.camera_viewer.view.ROIselect.sigRegionChangeFinished.connect(self.update_camera_roi)
+        # if param.name() in putils.iter_children(
+        #             self.settings.child("roi"), []):
+        #     self.camera_viewer.view.ROIselect.sigRegionChangeFinished.disconnect(self.update_camera_roi)
+        #     self.camera_viewer.view.ROIselect.setSize(
+        #         [self.settings.child('roi', 'roi_width').value(), self.settings.child('roi', 'roi_height').value()])
+        #     self.camera_viewer.view.ROIselect.setPos(
+        #         [self.settings.child('roi', 'roi_x0').value(), self.settings.child('roi', 'roi_y0').value()])
+        #     self.camera_viewer.view.ROIselect.sigRegionChangeFinished.connect(self.update_camera_roi)
 
     def update_tf_roi(self, linear_roi):
         pos = linear_roi.getRegion()
@@ -237,84 +239,13 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
         self.settings.child('roi', 'roi_y0').setValue(y)
 
 
-    def init_saver(self):
-           # First time we click on the button
-            _, _, dataset_path = self.h5saver.update_file_paths()
-            self.h5saver.settings.child('base_name').setValue(os.path.split(dataset_path)[0])
-            try:
-                self.h5saver.init_file(custom_naming=True)
-            except AttributeError:
-                logger.error('User didn\'t select a file')
-
-            if not self.h5saver.h5_file_name == '':     # User selected a file
-                # Scan
-                self.h5saver.add_scan_group(title='PID Log')
-                self.current_scan_path = self.h5saver.settings.child('current_scan_path').value()
-                # Detector
-                self.h5saver.add_det_group(
-                    where=self.h5saver.current_scan_group,
-                    title='Phase')
-                phase_group = self.h5saver.current_group
-                # Data
-                self.h5saver.add_data_group(
-                    where=phase_group,
-                    group_data_type='data0D',
-                    title='Phase'
-                )
-                phase_data_group = self.h5saver.current_group
-
-                # Phase
-                self.h5saver.add_CH_group(
-                    where=phase_data_group,
-                    title='Phase'
-                )
-                # Time
-                self.h5saver.add_CH_group(
-                    where=phase_data_group,
-                    title='Time'
-                )
-                return True
-            else:   # User didn't select a file
-                # self.h5saver.h5_file_name = None
-                return False
-
-    def start_saver(self):
-        self.recording = True
-        self.settings.child('statsGroup', 'record').setOpts(visible=False)
-        self.settings.child('statsGroup', 'recordStop').setOpts(visible=True)
-
-        # self.timearray = np.zeros((self.settings.child('statsGroup', 'N_record').value(), 3))
-        # self.delayarray = np.zeros(self.settings.child('statsGroup', 'N_record').value())
-        # self.Nrecorded = 0
-        # self.recording = True
-        # self.h5saver = H5Saver()
-        # time_init = datetime.now()
-        # self.h5saver.init_file(custom_naming=False,
-        #                         addhoc_file_path='C:/Users/mguer/Matthieu/recording_{0.year}{0.month}{0.day}_{0.hour}h{0.minute}.h5'.format(
-        #                             time_init))
-        #
-        # self.h5saver.add_data_group('/', title='Time', group_data_type='data1D')
-        # self.h5_timegroup = self.h5saver.current_group
-        # self.h5saver.add_data_group('/', title='Delay', group_data_type='data1D')
-        # self.h5_delaygroup = self.h5saver.current_group
-        #
-        self.settings.child('statsGroup', 'record').setOpts(visible=False)
-        self.settings.child('statsGroup', 'recordStop').setOpts(visible=True)
-        # print('saver_inited')
-
-    def close_saver(self):
-        self.recording = False
-        self.settings.child('statsGroup', 'record').setOpts(visible=True)
-        self.settings.child('statsGroup', 'recordStop').setOpts(visible=False)
-        # self.h5saver.close()
-
     def ini_model(self):
         super().ini_model()
 
         self.phase_vector = deque(maxlen=100)
         self.offset = 0
 
-    def convert_input(self, measurements):
+    def convert_input(self, measurements: DataToExport) -> DataToExport:
         """
         Convert the image of the camera into x and y positions of the center of the beam.
         Parameters
@@ -325,16 +256,16 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
         -------
         tuple: the coordinate of the center of the beam
         """
-        key = list(measurements[self.detectors_name[0]]['data2D'].keys())[
-            0]  # so it can also be used from another plugin having another key
-        image = np.array(measurements[self.detectors_name[0]]['data2D'][key]['data'])
+        image = np.array(measurements.get_data_from_dim('Data2D')[0][0])
 
+        #Sum on ROI to have fringes
+        self.fringes = np.nanmean(self.roi.getArrayRegion(image, self.img1a),axis = 0)
 
         # self.img1b.setImage(self.roi.getArrayRegion(image, self.img1a), levels=(0, image.max()))
-        roi = self.camera_viewer.ROIselect.getArrayRegion(image,
-                                                          self.camera_viewer.view.data_displayer.get_image('red'))
+        # roi = self.camera_viewer.view.ROIselect.getArrayRegion(image,
+        #                                                   self.camera_viewer.view.data_displayer.get_image('red'))
 
-        self.fringes = np.nanmean(roi, axis=0)
+        # self.fringes = np.nanmean(roi, axis=0)
         first_nonzero = (self.fringes!=0).argmax()
         last_nonzero = len(self.fringes) - np.flip(self.fringes != 0).argmax()
         self.fringes = self.fringes[first_nonzero:last_nonzero]
@@ -355,7 +286,7 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
         # Check that FFT peak is sufficiently strong
         if np.mean(np.abs(tf[x_min:x_max])) > self.settings.child('spectrum', 'peak_threshold'). value():
             # Restart PID in case it was stopped by fft peak too low
-            if not self.pid_controller.pause_action.isChecked():
+            if not self.pid_controller.is_action_checked('pause'):
                 pid_logger.disabled = True #avoid having hundreds of messages in log
                 self.pid_controller.command_pid.emit(ThreadCommand('pause_PID', [False]))
                 pid_logger.disabled = False
@@ -386,44 +317,48 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
             delay = self.pid_controller.setpoints[0]
 
         if self.settings.child('show_plots', 'show_camera').value():
-            self.camera_viewer.show_data(DataFromPlugins(data=[image]))
+            self.img1a.setImage(image, axisOrder='row-major')
         if self.settings.child('show_plots', 'show_roi').value():
-            self.fringe_viewer.show_data([self.fringes])
+            self.fringe_viewer.setData(y=self.fringes)
         if self.settings.child('show_plots', 'show_fft').value():
-            self.tf_viewer.show_data([np.abs(tf)])
+            self.tf_viewer.setData(y=np.abs(tf))
         if self.settings.child('show_plots', 'show_phase').value():
             if new_phase_point:
                 tmp = np.angle(np.exp(np.array(self.phase_vector) * 1j))
-                self.phase_viewer.show_data([[tmp[-1]]])
+                self.phase_viewer.setData(tmp)
+        #
+        # if self.recording:
+        #     if self.phase_arrays is None:
+        #         self.phase_arrays = self.h5saver.add_data(
+        #             channel_group=self.h5saver.get_set_group(
+        #                 where=self.h5saver.current_scan_group.path + '/Detector000/Data0D',
+        #                 name='Ch000'),
+        #             data_dict=dict(data=np.asarray([delay])),
+        #             title='Current phase or delay',
+        #             enlargeable=True)
+        #
+        #         self.time_axis_arrays = self.h5saver.add_data(
+        #             channel_group=self.h5saver.get_set_group(
+        #                 where=self.h5saver.current_scan_group.path + '/Detector000/Data0D',
+        #                 name='Ch001'),
+        #             data_dict=dict(data=np.asarray(time.mktime(datetime.now().timetuple()))),
+        #             title='Time since epoch',
+        #             enlargeable=True)
+        #
+        #         self.h5saver.h5_file.flush()
+        #
+        #     else:
+        #         self.phase_arrays.append(np.asarray(delay))
+        #         self.time_axis_arrays.append(np.asarray(time.mktime(datetime.now().timetuple())))
+        #         self.h5saver.h5_file.flush()
 
-        if self.recording:
-            if self.phase_arrays is None:
-                self.phase_arrays = self.h5saver.add_data(
-                    channel_group=self.h5saver.get_set_group(
-                        where=self.h5saver.current_scan_group.path + '/Detector000/Data0D',
-                        name='Ch000'),
-                    data_dict=dict(data=np.asarray([delay])),
-                    title='Current phase or delay',
-                    enlargeable=True)
+        self.curr_input = [delay]
+        return DataToExport('inputs',
+                            data=[DataCalculated(self.setpoints_names[ind],
+                                                 data=[np.array([self.curr_input[ind]])])
+                                  for ind in range(len(self.curr_input))])
 
-                self.time_axis_arrays = self.h5saver.add_data(
-                    channel_group=self.h5saver.get_set_group(
-                        where=self.h5saver.current_scan_group.path + '/Detector000/Data0D',
-                        name='Ch001'),
-                    data_dict=dict(data=np.asarray(time.mktime(datetime.now().timetuple()))),
-                    title='Time since epoch',
-                    enlargeable=True)
-
-                self.h5saver.h5_file.flush()
-
-            else:
-                self.phase_arrays.append(np.asarray(delay))
-                self.time_axis_arrays.append(np.asarray(time.mktime(datetime.now().timetuple())))
-                self.h5saver.h5_file.flush()
-
-        return InputFromDetector([delay])
-
-    def convert_output(self, outputs, dt=0, stab=True):
+    def convert_output(self, outputs: List[float], dt, stab=True) -> DataToActuatorPID:
         """
         Convert the output of the PID in units to be fed into the actuator
         Parameters
@@ -447,16 +382,17 @@ class PIDModelSpetralInterferometrySE1bis(PIDModelGeneric):
                 self.curr_output = np.array(outputs) / 360 * self.wavelength * 1e-9 / 2 / self.settings.child(
                     'unitsGroup', 'actUnits').value()
 
-        return OutputToActuator(mode='rel', values=self.curr_output)
+        return DataToActuatorPID('pid', mode='rel',
+                                 data=[DataActuator(self.actuators_name[0], data=[self.curr_output])])
 
 
 def main():
     from pymodaq.dashboard import DashBoard
-    from pymodaq.daq_utils.daq_utils import get_set_preset_path
-    from pymodaq.daq_utils import gui_utils as gutils
+    from pymodaq.utils.daq_utils import get_set_preset_path
+    from pymodaq.utils import gui_utils as gutils
     from pathlib import Path
     from PyQt5 import QtWidgets
-    from pymodaq.pid.pid_controller import DAQ_PID
+    from pymodaq.extensions.pid.pid_controller import DAQ_PID
 
     import sys
     app = QtWidgets.QApplication(sys.argv)
@@ -467,7 +403,7 @@ def main():
     win.setWindowTitle('PyMoDAQ Dashboard')
 
     dashboard = DashBoard(area)
-    file = Path(get_set_preset_path()).joinpath("mock_stab.xml")
+    file = Path(get_set_preset_path()).joinpath("mock_stabfringes2.xml")
     if file.exists():
         dashboard.set_preset_mode(file)
         # prog.load_scan_module()
@@ -475,8 +411,8 @@ def main():
         pid_window = QtWidgets.QMainWindow()
         pid_window.setCentralWidget(pid_area)
 
-        prog = DAQ_PID(pid_area)
-        prog.set_module_manager(dashboard.detector_modules, dashboard.actuators_modules)
+        prog = DAQ_PID(pid_area, dashboard)
+        #prog.set_module_manager(dashboard.detector_modules, dashboard.actuators_modules)
         QtWidgets.QApplication.processEvents()
 
 
